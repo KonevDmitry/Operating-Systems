@@ -1,0 +1,500 @@
+   22      copybara copy.bara.sky --force;    expect_log '\[ 1/2\] Transform Replace food';   expect_log '\[ 2/2\] Transform Replace f\${os}o';    expect_not_log "You are in 'detached HEAD' state";    [[ -f $workdir/checkout/test.txt ]] || fail "Checkout was not successful";   cat $workdir/checkout/test.txt > $TEST_log;   expect_log "first version for drink and barooooo";   cat $workdir/checkout/subdir/test.txt > $TEST_log;   expect_in_file "first version for drink and barols" $workdir/checkout/subdir/test.txt;   check_copybara_rev_id "$destination" "$first_commit";    pushd $remote || return;   echo "second version for food and foooooo" > test.txt;   echo "second version for food and fools" > subdir/test.txt;    run_git add test.txt;   run_git commit -m "second commit";   second_commit=$(git rev-parse HEAD);   popd || return;    copybara copy.bara.sky;    [[ -f $workdir/checkout/test.txt ]] || fail "Checkout was not successful";   expect_in_file "second version for drink and barooooo" $workdir/checkout/test.txt;    check_copybara_rev_id "$destination" "$second_commit";    ( cd $destination || return;     run_git show master > $TEST_log;   );    expect_log "-first version for drink";   expect_log "+second version for drink and barooooo"; }
+   23  function test_git_iterative() {   remote=$(temp_dir remote);   repo_storage=$(temp_dir storage);   workdir=$(temp_dir workdir);   destination=$(empty_git_bare_repo);    pushd $remote || return;   run_git init .;   commit_one=$(single_file_commit "commit one" file.txt "food fooooo content1");   commit_two=$(single_file_commit "commit two" file.txt "food fooooo content2");   commit_three=$(single_file_commit "commit three" file.txt "food fooooo content3");   commit_four=$(single_file_commit "commit four" file.txt "food fooooo content4");   commit_five=$(single_file_commit "commit five" file.txt "food fooooo content5");    popd || return
+   24      cat > copy.bara.sky <<EOF
+   25  core.workflow(
+   26      name = "default",
+   27      origin = git.origin(
+   28        url = "file://$remote",
+   29        ref = "master",
+   30      ),
+   31      destination = git.destination(
+   32        url = "file://$destination",
+   33        fetch = "master",
+   34        push = "master",
+   35      ),
+   36      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+   37      mode = "ITERATIVE",
+   38  )
+   39  EOF
+   40      copybara copy.bara.sky default $commit_three --last-rev $commit_one;    check_copybara_rev_id "$destination" "$commit_three";    ( cd $destination || return;     run_git log master~1..master > $TEST_log;   );   expect_not_log "commit two";   expect_log "commit three";    copybara copy.bara.sky default $commit_five;    check_copybara_rev_id "$destination" "$commit_five";    ( cd $destination || return;     run_git log master~2..master~1 > $TEST_log;   );   expect_log "commit four";    ( cd $destination || return;     run_git log master~1..master > $TEST_log;   );   expect_log "commit five";    copybara_with_exit_code $NO_OP copy.bara.sky default $commit_three;   expect_log "No new changes to import for resolved ref"; }
+   41  function single_file_commit() {   message=$1;   file=$2;   content=$3;   echo $content > $file;   run_git add $file;   run_git commit -m "$message";   git rev-parse HEAD; }
+   42  function test_get_git_changes() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    pushd $remote || return;   run_git init .;   commit_one=$(single_file_commit "commit one" file.txt "food fooooo content1");   commit_two=$(single_file_commit "commit two" file.txt "food fooooo content2");   commit_three=$(single_file_commit "commit three" file.txt "food fooooo content3");   commit_four=$(single_file_commit "commit four" file.txt "food fooooo content4");   commit_five=$(single_file_commit "commit five" file.txt "food fooooo content5");   popd || return; 
+   43      cat > copy.bara.sky <<EOF
+   44  core.workflow(
+   45      name = "default",
+   46      origin = git.origin(
+   47        url = "file://$remote",
+   48        ref = "master",
+   49      ),
+   50      destination = git.destination(
+   51        url = "file://$destination",
+   52        fetch = "master",
+   53        push = "master",
+   54      ),
+   55      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+   56      transformations = [
+   57          metadata.squash_notes()
+   58      ],
+   59  )
+   60  EOF
+   61      copybara info copy.bara.sky default;   expect_log "'workflow_default': last_migrated None - last_available $commit_five";   expect_log "Available changes:";   expect_log "1 - $commit_one commit one by Bara Kopi <bara@kopi.com>";   expect_log "2 - $commit_two commit two by Bara Kopi <bara@kopi.com>";   expect_log "3 - $commit_three commit three by Bara Kopi <bara@kopi.com>";   expect_log "4 - $commit_four commit four by Bara Kopi <bara@kopi.com>";   expect_log "5 - $commit_five commit five by Bara Kopi <bara@kopi.com>";    copybara copy.bara.sky default $commit_one --force;    check_copybara_rev_id "$destination" "$commit_one";    copybara info copy.bara.sky default;   expect_log "'workflow_default': last_migrated $commit_one - last_available $commit_five";   expect_log "Available changes:";   expect_log "1 - $commit_two commit two by Bara Kopi <bara@kopi.com>";   expect_log "2 - $commit_three commit three by Bara Kopi <bara@kopi.com>";   expect_log "3 - $commit_four commit four by Bara Kopi <bara@kopi.com>";   expect_log "4 - $commit_five commit five by Bara Kopi <bara@kopi.com>";    ( cd $destination || return;     run_git log master~1..master > $TEST_log;   )   expect_log "commit one";    copybara copy.bara.sky default $commit_four;    copybara info copy.bara.sky default;   expect_log "'workflow_default': last_migrated $commit_four - last_available $commit_five";   expect_log "Available changes:";   expect_log "1 - $commit_five commit five by Bara Kopi <bara@kopi.com>";    check_copybara_rev_id "$destination" "$commit_four";    ( cd $destination || return;     run_git log master~1..master > $TEST_log;   )   expect_not_log "commit one";   expect_log "$commit_two.*commit two";   expect_log "$commit_three.*commit three";   expect_log "$commit_four.*commit four";   expect_not_log "commit five";    copybara copy.bara.sky default $commit_five --last-rev $commit_three;    check_copybara_rev_id "$destination" "$commit_five";    ( cd $destination || return;     run_git log master~1..master > $TEST_log;   )   expect_not_log "commit one";   expect_not_log "commit two";   expect_not_log "commit three";   expect_log "$commit_four.*commit four";   expect_log "$commit_five.*commit five"; }
+   62  function test_can_skip_excluded_commit() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    pushd $remote || return;   run_git init .;   commit_master=$(single_file_commit "last rev commit" file2.txt "origin");   commit_one=$(single_file_commit "commit one" file.txt "foooo")   commit_two=$(single_file_commit "commit two" file2.txt "bar");   commit_three=$(single_file_commit "commit three" file.txt "baaaz");   popd || return; 
+   63      cat > copy.bara.sky <<EOF
+   64  core.workflow(
+   65      name = "default",
+   66      origin = git.origin(
+   67        url = "file://$remote",
+   68        ref = "master",
+   69      ),
+   70      origin_files = glob(include = ["**"], exclude = ["file2.txt"]),
+   71      destination = git.destination(
+   72        url = "file://$destination",
+   73        fetch = "master",
+   74        push = "master",
+   75      ),
+   76      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+   77      mode = "ITERATIVE",
+   78  )
+   79  EOF
+   80      copybara copy.bara.sky default $commit_three --last-rev $commit_master --force;    check_copybara_rev_id "$destination" "$commit_three";    ( cd $destination || return;     run_git log > $TEST_log;   );   expect_log "commit one";   expect_not_log "commit two";   expect_log "commit three"; }
+   81  function empty_git_bare_repo() {   repo=$(temp_dir repo);   cd $repo || return;   run_git init . --bare > $TEST_log 2>&1 || fail "Cannot create repo";   run_git --work-tree="$(mktemp -d)" commit --allow-empty -m "Empty repo"     > $TEST_log 2>&1 || fail "Cannot commit to empty repo";   echo $repo; }
+   82  function prepare_glob_tree() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    ( cd $remote || return;     run_git init .;     echo "foo" > test.txt;     echo "foo" > test.java;     mkdir -p folder/subfolder;     echo "foo" > folder/test.txt;     echo "foo" > folder/test.java;     echo "foo" > folder/subfolder/test.txt;     echo "foo" > folder/subfolder/test.java;     run_git add -A;     run_git commit -m "first commit";   ); }
+   83  function test_regex_with_path() {   prepare_glob_tree; 
+   84    cat > copy.bara.sky <<EOF
+   85  core.workflow(
+   86      name = "default",
+   87      origin = git.origin(
+   88        url = "file://$remote",
+   89        ref = "master",
+   90      ),
+   91      destination = git.destination(
+   92        url = "file://$destination",
+   93        fetch = "master",
+   94        push = "master",
+   95      ),
+   96      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+   97      transformations = [
+   98          core.replace(
+   99              before = "foo",
+  100              after  = "bar",
+  101              paths = glob(['**.java']),
+  102          )
+  103      ],
+  104  )
+  105  EOF
+  106     copybara copy.bara.sky --force;   ( cd "$(mktemp -d)" || return;     run_git clone $destination .;     expect_in_file "foo" test.txt;     expect_in_file "bar" test.java;     expect_in_file "foo" folder/test.txt;     expect_in_file "bar" folder/test.java;     expect_in_file "foo" folder/subfolder/test.txt;     expect_in_file "bar" folder/subfolder/test.java;   ); }
+  107  function git_pull_request() {   sot=$(empty_git_bare_repo);   public=$(empty_git_bare_repo); 
+  108    cat > copy.bara.sky <<EOF
+  109  core.workflow(
+  110      name = "export",
+  111      origin = git.origin(
+  112        url = "file://$sot",
+  113        ref = "master",
+  114      ),
+  115      destination = git.destination(
+  116        url = "file://$public",
+  117        fetch = "master",
+  118        push = "master",
+  119      ),
+  120      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  121  )
+  122  core.workflow(
+  123      name = "import_change",
+  124      origin = git.origin(
+  125        url = "file://$public",
+  126        ref = "master",
+  127      ),
+  128      destination = git.destination(
+  129        url = "file://$sot",
+  130        fetch = "master",
+  131        push = "master",
+  132      ),
+  133      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  134      mode = "CHANGE_REQUEST",
+  135  )
+  136  EOF
+  137      pushd "$(mktemp -d)" || return;   run_git clone $sot .;   commit_one=$(single_file_commit "commit one" one.txt "content");   commit_two=$(single_file_commit "commit two" two.txt "content");   commit_three=$(single_file_commit "commit three" three.txt "content");   run_git push;   popd || return;    copybara copy.bara.sky export $commit_two;    pushd "$(mktemp -d)" || return;   run_git clone $public .;   [[ -f one.txt ]] || fail "one.txt should exist in commit two";   [[ -f two.txt ]] || fail "two.txt should exist in commit two";   [[ ! -f three.txt ]] || fail "three.txt should NOT exist in commit two";    pr_request=$(single_file_commit "pull request" pr.txt "content");   run_git push;   popd || return;    copybara copy.bara.sky import_change $pr_request;    pushd "$(mktemp -d)" || return;   run_git clone $sot .;   [[ -f one.txt ]] || fail "one.txt should exist after pr import";   [[ -f two.txt ]] || fail "two.txt should exist after pr import";   [[ -f three.txt ]] || fail "three.txt should exist after pr import";   [[ -f pr.txt ]] || fail "pr.txt should exist after pr import";   popd || return; }
+  138  function test_git_delete() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);   destination=$(empty_git_bare_repo);    ( cd $remote || return;     run_git init .;     echo "first version for food and foooooo" > test.txt;     mkdir subdir;     echo "first version" > subdir/test.txt;     mkdir subdir2;     echo "first version" > subdir2/test.java;     echo "first version" > subdir2/test.txt;     run_git add -A;     run_git commit -m "first commit";   ); 
+  139    cat > copy.bara.sky <<EOF
+  140  core.workflow(
+  141      name = "default",
+  142      origin = git.origin(
+  143        url = "file://$remote",
+  144        ref = "master",
+  145      ),
+  146      destination = git.destination(
+  147        url = "file://$destination",
+  148        fetch = "master",
+  149        push = "master",
+  150      ),
+  151      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  152      origin_files = glob(include = ["**"], exclude = ['**/*.java', 'subdir/**']),
+  153  )
+  154  EOF
+  155     copybara copy.bara.sky --force;    ( cd "$(mktemp -d)" || return;     run_git clone $destination .;     [[ ! -f subdir/test.txt ]] || fail "/subdir/test.txt should be deleted";     [[ ! -f subdir2/test.java ]] || fail "/subdir2/test.java should be deleted";      [[ -f test.txt ]] || fail "/test.txt should not be deleted";     [[ ! -d subdir ]] || fail "/subdir should be deleted";     [[ -d subdir2 ]] || fail "/subdir2 should not be deleted";     [[ -f subdir2/test.txt ]] || fail "/subdir2/test.txt should not be deleted";   ); }
+  156  function test_reverse_sequence() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    ( cd $remote || return;     run_git init .;     echo "foobaz" > test.txt;     run_git add -A;     run_git commit -m "first commit";   ); 
+  157    cat > copy.bara.sky <<EOF
+  158  forward_transforms = [
+  159    core.replace('foo', 'bar'),
+  160    core.replace('baz', 'bee'),
+  161  ]
+  162  core.workflow(
+  163      name = "forward",
+  164      origin = git.origin(
+  165        url = "file://$remote",
+  166        ref = "master",
+  167      ),
+  168      destination = git.destination(
+  169        url = "file://$destination",
+  170        fetch = "master",
+  171        push = "master",
+  172      ),
+  173      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  174      transformations = forward_transforms,
+  175  )
+  176  core.workflow(
+  177      name = "reverse",
+  178      origin = git.origin(
+  179        url = "file://$destination",
+  180        ref = "master",
+  181      ),
+  182      destination = git.destination(
+  183        url = "file://$remote",
+  184        fetch = "reverse",
+  185        push = "reverse",
+  186      ),
+  187      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  188      transformations = core.reverse(forward_transforms),
+  189  )
+  190  EOF
+  191     copybara copy.bara.sky forward --force;    ( cd "$(mktemp -d)" || return;     run_git clone $destination .;     [[ -f test.txt ]] || fail "/test.txt should exit";     expect_in_file "barbee" test.txt;   );   copybara copy.bara.sky reverse --force;    ( cd "$(mktemp -d)" || return;     run_git clone $remote .;     run_git checkout reverse;     [[ -f test.txt ]] || fail "/test.txt should exit";     expect_in_file "foobaz" test.txt;   ); }
+  192  function test_local_dir_destination() {   remote=$(temp_dir remote);    ( cd $remote || return;     run_git init .;     echo "first version for food and foooooo" > test.txt;     echo "first version" > test.txt;     run_git add test.txt;     run_git commit -m "first commit";   );   mkdir destination; 
+  193    cat > destination/copy.bara.sky <<EOF
+  194  core.workflow(
+  195      name = "default",
+  196      origin = git.origin(
+  197        url = "file://$remote",
+  198        ref = "master",
+  199      ),
+  200      destination_files = glob(include = ["**"], exclude = ["copy.bara.sky", "**.keep"]),
+  201      destination = folder.destination(),
+  202      reversible_check = True, # enabled to test for regression where folder.origin caused exceptions
+  203      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  204  )
+  205  EOF
+  206      touch destination/keepme.keep;   mkdir -p destination/folder;   touch destination/folder/keepme.keep;   touch destination/dontkeep.txt;    copybara destination/copy.bara.sky --folder-dir destination;    [[ -f destination/test.txt ]] || fail "test.txt should exist";   [[ -f destination/copy.bara.sky ]] || fail "copy.bara.sky should exist";   [[ -f destination/keepme.keep ]] || fail "keepme.keep should exist";   [[ -f destination/folder/keepme.keep ]] || fail "folder/keepme.keep should exist";   [[ ! -f destination/dontkeep.txt ]] || fail "dontkeep.txt should be deleted"; }
+  207  function test_choose_non_default_workflow() {   remote=$(temp_dir remote);    ( cd $remote || return;     run_git init .;     echo "foo" > test.txt;     run_git add test.txt;     run_git commit -m "first commit";   );   mkdir destination; 
+  208    cat > destination/copy.bara.sky <<EOF
+  209  core.workflow(
+  210      name = "default",
+  211      origin = git.origin(
+  212        url = "file://$remote",
+  213        ref = "master",
+  214      ),
+  215      destination = folder.destination(),
+  216      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  217  )
+  218  core.workflow(
+  219      name = "choochoochoose_me",
+  220      origin = git.origin(
+  221        url = "file://$remote",
+  222        ref = "master",
+  223      ),
+  224      destination = folder.destination(),
+  225      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  226      transformations = [core.replace("foo", "bar")]
+  227  )
+  228  EOF
+  229      copybara destination/copy.bara.sky choochoochoose_me --folder-dir destination;   expect_in_file "bar" destination/test.txt; }
+  230  function test_file_move() {   remote=$(temp_dir remote);    ( cd $remote || return;     run_git init .;     echo "foo" > test1.txt;     echo "foo" > test2.txt;     run_git add test1.txt test2.txt;     run_git commit -m "first commit";   );   mkdir destination; 
+  231    cat > destination/copy.bara.sky <<EOF
+  232  core.workflow(
+  233      name = "default",
+  234      origin = git.origin(
+  235        url = "file://$remote",
+  236        ref = "master",
+  237      ),
+  238      destination = folder.destination(),
+  239      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  240      transformations = [
+  241          core.move('test1.txt', 'test1.moved'),
+  242          core.move('test2.txt', 'test2.moved'),
+  243      ],
+  244  )
+  245  EOF
+  246      copybara destination/copy.bara.sky --folder-dir destination;    expect_in_file "foo" destination/test1.moved;   expect_in_file "foo" destination/test2.moved;   [[ ! -f destination/test1.txt ]] || fail "test1.txt should have been moved";   [[ ! -f destination/test2.txt ]] || fail "test2.txt should have been moved"; }
+  247  function test_profile() {   remote=$(temp_dir remote);    ( cd $remote || return;     run_git init .;     echo "foo" > test.txt;     run_git add test.txt;     run_git commit -m "first commit";   );   mkdir destination; 
+  248    cat > destination/copy.bara.sky <<EOF
+  249  core.workflow(
+  250      name = "default",
+  251      origin = git.origin(
+  252        url = "file://$remote",
+  253        ref = "master",
+  254      ),
+  255      destination = folder.destination(),
+  256      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  257      transformations = [
+  258          core.move('test.txt', 'test.moved'),
+  259          core.move('test.moved', 'test.moved2'),
+  260      ],
+  261  )
+  262  EOF
+  263      copybara destination/copy.bara.sky --folder-dir destination;   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/clean_outputdir";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/origin.resolve_source_ref";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/squash/prepare_workdir";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/squash/origin.checkout";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/squash/transforms/Moving test.txt";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/squash/transforms/Moving test.moved";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/squash/transforms";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/squash/destination.write";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run/default/squash";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara/run";   expect_log "taskFinished.*PROFILE:.*[0-9]* //copybara";   expect_in_file "foo" destination/test.moved2; }
+  264  function test_invalid_transformations_in_config() {
+  265    cat > copy.bara.sky <<EOF
+  266  core.workflow(
+  267      name = "default",
+  268      origin = git.origin(
+  269        url = "file://foo/bar",
+  270        ref = "master",
+  271      ),
+  272      destination = folder.destination(),
+  273      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  274      transformations = [42],
+  275  )
+  276  EOF
+  277     copybara_with_exit_code $CONFIGURATION_ERROR copy.bara.sky default;   expect_log "expected type '\?transformation'\? for 'transformations' element but got type '\?int'\? instead"; }
+  278  function test_command_help_flag() {   copybara help;   expect_log 'Usage: copybara \[options\]';   expect_log 'Example:'; }
+  279  # We want to log the command line arguments so that it is easy to reproduce
+  280  # user issues.
+  281  function test_command_args_logged() {   copybara foo bar baz --option && fail "should fail";   expect_log 'Running: .*foo bar baz --option'; }
+  282  function test_command_copybara_filename_no_correct_name() {   copybara_with_exit_code $CONFIGURATION_ERROR migrate somename.bzl;   expect_log "Copybara config file filename should be 'copy.bara.sky'"; }
+  283  function setup_reversible_check_workflow() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    pushd $remote || return;   run_git init .;   echo "Is the reverse of the reverse forward?" > test.txt;   run_git add test.txt;   run_git commit -m "first commit";   first_commit=$(run_git rev-parse HEAD);   popd || return; 
+  284      cat > copy.bara.sky <<EOF
+  285  core.workflow(
+  286      name = "default",
+  287      origin = git.origin(
+  288        url = "file://$remote",
+  289        ref = "master",
+  290      ),
+  291      destination = git.destination(
+  292        url = "file://$destination",
+  293        fetch = "master",
+  294        push = "master",
+  295      ),
+  296      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  297      reversible_check = True,
+  298      transformations = [
+  299        core.replace(
+  300          before = "reverse",
+  301          after  = "forward"
+  302        )
+  303      ],
+  304  )
+  305  EOF
+  306   }
+  307  function test_reversible_check() {   setup_reversible_check_workflow;   copybara_with_exit_code $CONFIGURATION_ERROR copy.bara.sky --force;   expect_log "ERROR: Workflow 'default' is not reversible"; }
+  308  function test_disable_reversible_check() {   setup_reversible_check_workflow;   copybara --disable-reversible-check copy.bara.sky --force; }
+  309  function test_config_not_found() {   copybara_with_exit_code $COMMAND_LINE_ERROR copy.bara.sky origin/master;   expect_log "Configuration file not found: copy.bara.sky"; }
+  310  #Verify that we instantiate LogConsole when System.console() is null
+  311  function test_no_ansi_console() {   copybara_with_exit_code $COMMAND_LINE_ERROR copy.bara.sky;   expect_log "^20[0-9]\{6\} .*"; }
+  312  # Verify that Copybara fails if we try to read the input from the user from a writeOnly LogConsole
+  313  function test_log_console_is_write_only() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    ( cd $remote || return;     run_git init .;     echo "first version for food and foooooo" > test.txt;     run_git add -A;     run_git commit -m "first commit";   ); 
+  314    cat > copy.bara.sky <<EOF
+  315  core.workflow(
+  316      name = "default",
+  317      origin = git.origin(
+  318        url = "file://$remote",
+  319        ref = "master",
+  320      ),
+  321      destination = git.destination(
+  322        url = "file://$destination",
+  323        fetch = "master",
+  324        push = "master",
+  325      ),
+  326      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  327      ask_for_confirmation = True,
+  328  )
+  329  EOF
+  330     copybara_with_exit_code $INTERNAL_ERROR copy.bara.sky --force;   expect_log "LogConsole cannot read user input if system console is not present"; }
+  331  function run_multifile() {   config_folder=$1;   shift;   flags="$*";   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    pushd $remote || return;   run_git init .;   echo "first version for food and foooooo" > test.txt;   mkdir subdir;   echo "first version" > subdir/test.txt;   run_git add test.txt subdir/test.txt;   run_git commit -m "first commit";   first_commit=$(run_git rev-parse HEAD);   popd || return;   mkdir -p $config_folder/foo/bar/baz;   mkdir -p $config_folder/baz
+  332    cat > $config_folder/baz/origin.bara.sky <<EOF
+  333    this shouldn't be loaded!
+  334  EOF
+  335    cat > $config_folder/foo/remote.bara.sky <<EOF
+  336  remote_var="file://$remote"
+  337  EOF
+  338    cat > $config_folder/foo/bar/baz/origin.bara.sky <<EOF
+  339  load("//foo/remote", "remote_var")
+  340  remote_origin=git.origin( url = remote_var, ref = "master",)
+  341  EOF
+  342    cat > $config_folder/foo/bar/copy.bara.sky <<EOF
+  343  load("baz/origin", "remote_origin")
+  344  core.workflow(
+  345      name = "default",
+  346      origin = remote_origin,
+  347      destination = git.destination(
+  348        url = "file://$destination",
+  349        fetch = "master",
+  350        push = "master",
+  351      ),
+  352      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  353  )
+  354  EOF
+  355     cd $config_folder || return;   copybara foo/bar/copy.bara.sky $flags --force;    [[ -f $workdir/checkout/test.txt ]] || fail "Checkout was not successful"; }
+  356  # Test that we can find the root when config is in a git repo
+  357  function test_multifile_git_root() {   config_folder=$(temp_dir config);   pushd $config_folder || return;   run_git init .;   popd || return;   run_multifile $config_folder; }
+  358  # Test that on non-git repos we can pass a flag to set the root
+  359  function test_multifile_root_cfg_flag() {   config_folder=$(temp_dir config);   run_multifile $config_folder --config-root $config_folder; }
+  360  # Regression test: config roots that are symlinks work
+  361  function test_multifile_root_cfg_flag_symlink() {   config_folder=$(temp_dir config);   mkdir "${config_folder}/test";   ln -s "${config_folder}/test" "${config_folder}/link";   run_multifile "${config_folder}/link" --config-root "${config_folder}/link"; }
+  362  function test_verify_match() {   prepare_glob_tree; 
+  363    cat > copy.bara.sky <<EOF
+  364  core.workflow(
+  365      name = "default",
+  366      origin = git.origin(
+  367        url = "file://$remote",
+  368        ref = "master",
+  369      ),
+  370      destination = git.destination(
+  371        url = "file://$destination",
+  372        fetch = "master",
+  373        push = "master",
+  374      ),
+  375      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  376      transformations = [
+  377          core.verify_match(
+  378              regex = "bar",
+  379              paths = glob(['**.java']),
+  380              verify_no_match = True
+  381          )
+  382      ],
+  383  )
+  384  EOF
+  385     copybara copy.bara.sky --force; }
+  386  function test_subcommand_parsing_fails() {   copybara_with_exit_code $COMMAND_LINE_ERROR migrate.sky copy.bara.sky;    expect_log "Invalid subcommand 'migrate.sky'"; }
+  387  function test_command_copybara_wrong_subcommand() {   copybara_with_exit_code COMMAND_LINE_ERROR foooo;   expect_log "Invalid subcommand 'foooo'. Available commands: ";   expect_log "Try 'copybara help'"; }
+  388  function test_default_command_too_few_args() {   copybara_with_exit_code $COMMAND_LINE_ERROR;   expect_log "Configuration file missing for 'migrate' subcommand.";   expect_log "Try 'copybara help'"; }
+  389  function test_migrate_missing_config() {   copybara_with_exit_code $COMMAND_LINE_ERROR migrate;    expect_log "Configuration file missing for 'migrate' subcommand.";   expect_log "Try 'copybara help'"; }
+  390  function test_info_missing_config() {   copybara_with_exit_code $COMMAND_LINE_ERROR info;    expect_log "Configuration file missing for 'info' subcommand."; }
+  391  function test_info_too_many_arguments() {   copybara_with_exit_code $COMMAND_LINE_ERROR info copy.bara.sky default foo;    expect_log "Too many arguments for subcommand 'info'"; }
+  392  function test_validate_missing_config() {   copybara_with_exit_code $COMMAND_LINE_ERROR validate;    expect_log "Configuration file missing for 'validate' subcommand."; }
+  393  function test_validate_too_many_arguments() {   copybara_with_exit_code $COMMAND_LINE_ERROR validate copy.bara.sky default foo;    expect_log "Too many arguments for subcommand 'validate'"; }
+  394  function test_validate_valid() {
+  395    cat > copy.bara.sky <<EOF
+  396  core.workflow(
+  397      name = "default",
+  398      origin = git.origin(
+  399        url = "file://foo/bar",
+  400        ref = "master",
+  401      ),
+  402      destination = git.destination(
+  403        url = "file://bar/foo",
+  404        fetch = "master",
+  405        push = "master",
+  406      ),
+  407      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  408      mode = "ITERATIVE",
+  409  )
+  410  EOF
+  411      copybara validate copy.bara.sky;    expect_log "Configuration '.*copy.bara.sky' is valid."; }
+  412  function test_validate_invalid() {
+  413      cat > copy.bara.sky <<EOF
+  414  core.workflowFoo(
+  415      name = "default",
+  416  )
+  417  EOF
+  418      copybara_with_exit_code $CONFIGURATION_ERROR validate copy.bara.sky;    expect_log "Configuration '.*copy.bara.sky' is invalid.";   expect_log "Error loading config file"; }
+  419  function test_require_at_least_one_migration() {
+  420      cat > copy.bara.sky <<EOF
+  421  EOF
+  422      copybara_with_exit_code $CONFIGURATION_ERROR migrate copy.bara.sky;    expect_log "At least one migration is required"; }
+  423  function test_apply_patch() {   prepare_glob_tree;   ( cd $remote || return;     echo "patched" > test.java;     echo "patched" > folder/test.java;     git --no-pager diff > $workdir/../diff1.patch;     run_git reset --hard;     expect_in_file "foo" test.java;     expect_in_file "foo" folder/test.java;     echo "patched again" > folder/subfolder/test.java;     git --no-pager diff > $workdir/../diff2.patch;     run_git reset --hard;     expect_in_file "foo" folder/subfolder/test.java;   );   cat > copy.bara.sky <<EOF
+  424  core.workflow(
+  425      name = "default",
+  426      origin = git.origin(
+  427        url = "file://$remote",
+  428        ref = "master",
+  429      ),
+  430      destination = git.destination(
+  431        url = "file://$destination",
+  432        fetch = "master",
+  433        push = "master",
+  434      ),
+  435      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  436      transformations = [
+  437          patch.apply(
+  438              patches = ["diff1.patch", "diff2.patch"],
+  439          )
+  440      ],
+  441  )
+  442  EOF
+  443     copybara copy.bara.sky --force;   ( cd "$(mktemp -d)" || return;     run_git clone $destination .;     expect_in_file "patched" test.java;     expect_in_file "patched" folder/test.java;     expect_in_file "patched again" folder/subfolder/test.java;   ); }
+  444  function test_description_migrator() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    pushd $remote || return;     run_git init .;     commit_initial=$(single_file_commit "initial rev commit" file2.txt "initial");     commit_master=$(single_file_commit "last rev commit" file23.txt "origin");     commit_one=$(single_file_commit "c1 foooo origin/${commit_master} bar" file.txt "one");    popd || return; 
+  445      cat > copy.bara.sky <<EOF
+  446  core.workflow(
+  447      name = "default",
+  448      origin = git.origin(
+  449        url = "file://$remote",
+  450        ref = "master",
+  451      ),
+  452      origin_files = glob(include = ["**"], exclude = ["file2.txt"]),
+  453      destination = git.destination(
+  454        url = "file://$destination",
+  455        fetch = "master",
+  456        push = "master",
+  457      ),
+  458      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  459       transformations = [
+  460          metadata.map_references(
+  461            before = "origin/\${reference}",
+  462            after = "destination/\${reference}",
+  463            regex_groups = {
+  464                "before_ref": "[0-9a-f]+",
+  465                "after_ref": "[0-9a-f]+",
+  466            }
+  467          )
+  468      ],
+  469      mode = "ITERATIVE",
+  470  )
+  471  EOF
+  472      copybara copy.bara.sky default $commit_master --last-rev $commit_initial;   copybara copy.bara.sky default $commit_one --last-rev $commit_master;    check_copybara_rev_id "$destination" "$commit_one";    ( cd $destination || return;     run_git log > $TEST_log;   );   expect_log "c1 foooo destination/[a-f0-9]\{1,\} bar"; }
+  473  function test_invalid_last_rev() {   remote=$(temp_dir remote);   destination=$(empty_git_bare_repo);    pushd $remote || return;     run_git init .;     commit_initial=$(single_file_commit "initial rev commit" file2.txt "initial");   popd || return; 
+  474      cat > copy.bara.sky <<EOF
+  475  core.workflow(
+  476      name = "default",
+  477      origin = git.origin(
+  478        url = "file://$remote",
+  479        ref = "master",
+  480      ),
+  481      origin_files = glob(include = ["**"], exclude = ["file2.txt"]),
+  482      destination = git.destination(
+  483        url = "file://$destination",
+  484        fetch = "master",
+  485        push = "master",
+  486      ),
+  487      authoring = authoring.pass_thru("Copybara Team <no-reply@google.com>"),
+  488      mode = "ITERATIVE",
+  489  )
+  490  EOF
+  491      copybara_with_exit_code $CONFIGURATION_ERROR copy.bara.sky default --last-rev --some-other-flag;    expect_log "Invalid refspec: --some-other-flag"; }
+  492  run_suite "Integration tests for Copybara code sharing tool."
+  493  cd C:\Users\Dmitry\Desktop\CAlabs\week1
+  494  cd C:\Users\Dmitry\Desktop\CAlabs
+  495  cd C:\Users\Dmitry\Desktop\CAlabs\week1
+  496  mkdir C:\Users\Dmitry\Desktop\CAlabs\week1
+  497  cd C:\Users\Dmitry\Desktop\CAlabs\week1
+  498  ls list.txt /usr/bin
+  499  ls >list.txt /usr/bin
+  500  mkdir C:/Users/Dmitry/Desktop/CAlabs/week1
+  501  cd C:/Users/Dmitry/Desktop/CAlabs/week1
+  502  ls> list.txt /usr/bin|grep "gcc" /usr/bin
+  503  ls>list.txt /usr/bin grep "gcc"
+  504  ls /usr/bin|grep gcc
+  505  ls|sort -r /usr/bin|grep gcc
+  506  ls | sort -r | /usr/bin
+  507  ls>list.txt | sort -r
+  508  ls sort -r /usr/bin|grep gcc
+  509  ls|sort -r /usr/bin|grep gcc
+  510  ls /usr/bin|sort -r|grep gcc
+  511  ls>list.txt /usr/bin|sort -r|grep gcc
+  512  ls /usr/bin|sort -r|grep gcc >list.txt
+  513  man man
+  514  man --help
+  515  whoami
+  516  hostname
+  517  less
+  518  less --help
+  519  help
+  520  history
+  521  history>ex2.txt
