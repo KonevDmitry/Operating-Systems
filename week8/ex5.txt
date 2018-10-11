@@ -1,0 +1,2 @@
+Virtual adress - adress in operating system.
+Physical adress - real adress in hardware.
