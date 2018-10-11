@@ -1,0 +1,4 @@
+2^16 / 2^13 = 2^3
+2^16 - number of adresses
+2^13 - number of entries
+In total we need 8 entries
