@@ -1,0 +1,12 @@
+Increased:
+
+1 2 3 4 5 1 2 3 4 5 1 2 3 4 5 1 2 3 4 5 1 2 3 4 5
+
+Will result in 5 misses (when filling) and never miss again, because the sequence is repeating.
+If amount of page frames is less than 5, though, it will produce more misses.
+
+Decreased:
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+
+Miss rate 100% because the sequence is not repeating. It will always load new pages from memory
