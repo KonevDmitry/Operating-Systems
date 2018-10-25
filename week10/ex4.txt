@@ -1,0 +1,4 @@
+For link1:
+./tmp/file1
+For file1:
+./tmp/link1

@@ -1,0 +1,4 @@
+1027  chmod -x ex3.txt
+ 1028  chmod 111 ex3.txt
+ 1029  chmod -R g=u ex3.txt
+ 1030  history|tail -4
