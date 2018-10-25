@@ -1,0 +1,2 @@
+11540474045213952 file.txt
+/home/Dmitry/OsLabs/week1/file.txt
