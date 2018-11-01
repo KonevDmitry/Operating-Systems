@@ -1,0 +1,7 @@
+1) Child and parent have same buffere.They keep string "Hello", 
+when the parent faces the second printf("\n") it prints "Hello" and "\n"from the buffer. 
+At the same time the child faces printf("\n"), it also prints "Hello" and "\n".
+
+2) Parent prints on the screen "Hello\n", 
+after fork the child keeps "\n". And when it gets printf("\n"),
+it prints first "\n" from the buffer and current "\n".
