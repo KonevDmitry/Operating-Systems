@@ -1,0 +1,20 @@
+first run:
+real    0m0.012s
+user    0m0.000s
+sys     0m0.016s
+
+with -DSYNC:
+real    0m0.012s
+user    0m0.000s
+sys     0m0.000s
+
+with -DBUF_SIZE=256:
+real    0m0.008s
+user    0m0.000s
+sys     0m0.000s
+
+with -DSYNC -DBIFSIZE=256:
+
+real    0m0.007s
+user    0m0.000s
+sys     0m0.016s
